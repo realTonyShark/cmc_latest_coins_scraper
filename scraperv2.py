@@ -4,64 +4,75 @@ import json
 from dotenv import load_dotenv
 import psycopg2
 import os
+import schedule
+import time
 
-load_dotenv()
-dbname = os.getenv("DB_NAME")
-user = os.getenv("DB_USER")
-password = os.getenv("DB_PASSWORD")
-host = os.getenv("DB_HOST")
-port = os.getenv("DB_PORT")
-cmc_api_key = os.getenv("CMC_API_KEY")
 
-conn = psycopg2.connect(dbname=dbname, user=user, password=password, host=host, port=port)
-cur = conn.cursor()
+def data_scraper():
 
-cur.execute("""
-    CREATE TABLE IF NOT EXISTS cryptocurrencies (
-        id SERIAL PRIMARY KEY,
-        name TEXT,
-        price NUMERIC,
-        date TIMESTAMP
-    );
-""")
+    load_dotenv()
+    dbname = os.getenv("DB_NAME")
+    user = os.getenv("DB_USER")
+    password = os.getenv("DB_PASSWORD")
+    host = os.getenv("DB_HOST")
+    port = os.getenv("DB_PORT")
+    cmc_api_key = os.getenv("CMC_API_KEY")
 
-url = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest'
-parameters = {
-  'start':'1',
-  'limit':'50',
-  'convert':'USD',
-  'sort':'date_added',
-  'sort_dir':'desc' 
+    conn = psycopg2.connect(dbname=dbname, user=user, password=password, host=host, port=port)
+    cur = conn.cursor()
 
-}
-headers = {
-  'Accepts': 'application/json',
-  'X-CMC_PRO_API_KEY': cmc_api_key,
-}
+    cur.execute("""
+      CREATE TABLE IF NOT EXISTS cryptocurrencies (
+          id SERIAL PRIMARY KEY,
+          name TEXT,
+          price NUMERIC,
+          date TIMESTAMP
+      );
+    """)
 
-session = Session()
-session.headers.update(headers)
+    url = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest'
+    parameters = {
+    'start':'1',
+    'limit':'50',
+    'convert':'USD',
+    'sort':'date_added',
+    'sort_dir':'desc' 
 
-try:
-  response = session.get(url, params=parameters)
-  data = json.loads(response.text)
-  print("success")
-  print(data)
+    }
+    headers = {
+    'Accepts': 'application/json',
+    'X-CMC_PRO_API_KEY': cmc_api_key,
+    }
 
-  for cryptocurrency in data['data']:
-    name = cryptocurrency['name']
-    price = cryptocurrency['quote']['USD']['price']
-    date = cryptocurrency['date_added']
-    print(f"{name} ${price} {date}")
+    session = Session()
+    session.headers.update(headers)
 
-    cur.execute("INSERT INTO cryptocurrencies (name, price, date) VALUES (%s, %s, %s);", (name, price, date))
-    print(f"Inserted: {name}, {price}, {date}")
+    try:
+        response = session.get(url, params=parameters)
+        data = json.loads(response.text)
+        print("success")
+        print(data)
 
-    conn.commit()
-    print("Data insertion successful")
+        for cryptocurrency in data['data']:
+          name = cryptocurrency['name']
+          price = cryptocurrency['quote']['USD']['price']
+          date = cryptocurrency['date_added']
+          print(f"{name} ${price} {date}")
 
-except (ConnectionError, Timeout, TooManyRedirects) as e:
-    print("error:", e)
+          cur.execute("INSERT INTO cryptocurrencies (name, price, date) VALUES (%s, %s, %s);", (name, price, date))
+          print(f"Inserted: {name}, {price}, {date}")
 
-cur.close()
-conn.close()
+          conn.commit()
+          print("Data insertion successful")
+
+    except (ConnectionError, Timeout, TooManyRedirects) as e:
+      print("error:", e)
+
+    cur.close()
+    conn.close()
+
+schedule.every(1).hours.do(data_scraper)
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
